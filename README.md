@@ -1,6 +1,6 @@
 # toa_sp — Multi-Strategy Single-Pulse TOA Extraction
 
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.7%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.XXXXXXX-blue)](https://doi.org/10.5281/zenodo.XXXXXXX)
 
@@ -67,7 +67,7 @@ python toa_sp.py -f data.fits -dm 175.25 -s 2.5 -w 0.05 -bs 4 -bf 16
 
 ## Requirements
 
-- Python ≥ 3.9
+- Python ≥ 3.7
 - numpy, scipy, astropy, matplotlib
 - Optional: emcee, corner
 
