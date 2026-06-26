@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# FITS data (large binary files)
+*.fits
+*.FITS
+
+# Output files
+*.png
+*.pdf
+*.tim
+*_toa.txt
+timing_log.txt
+
+# OS
+.DS_Store
+Thumbs.db
