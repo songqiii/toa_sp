@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "toa_sp"
-version = "0.1.1"
+version = "0.2.0"
 description = "Multi-strategy single-pulse TOA extraction from PSRFITS search-mode data"
 readme = "README.md"
 license = {text = "MIT"}

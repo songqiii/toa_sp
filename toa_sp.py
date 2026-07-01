@@ -323,6 +323,11 @@ def newscale_data(data_out, npol, pol_order, nchan, nbits):
         stds  = np.std(data_out[poln, :, :], axis=1)    # (nchan,)
         means = np.mean(data_out[poln, :, :], axis=1)   # (nchan,)
         scales  = stds / target_std
+        # Guard against zero-variance channels (e.g. 2-bit data with
+        # constant-valued channels) — leave those channels unscaled.
+        bad = (stds < 1e-12)
+        if np.any(bad):
+            scales[bad]  = 1.0
         offsets = means - target_avg * scales
         fdata[poln, :, :] = ((data_out[poln, :, :] - offsets[:, np.newaxis])
                              / scales[:, np.newaxis])
@@ -2204,8 +2209,9 @@ def main():
                              'or a specific name: single, highest, '
                              'error_weighted, first_peak, leading_edge, '
                              'center_of_mass, shapelet')
-    parser.add_argument('--telescope', default='fast',
-                        help='Telescope name for .tim output (default: fast)')
+    parser.add_argument('--telescope', default=None,
+                        help='Telescope name for .tim output '
+                             '(auto-detected from FITS header by default)')
     parser.add_argument('-o', '--output', default='timing_result',
                         help='Output basename (no extension)')
     args = parser.parse_args()
@@ -2235,6 +2241,13 @@ def main():
 
     print(f"  MJD start : {mjd_start:.10f}"
           f"  (IMJD={mjd_int:.0f} + {mjd_sec + mjd_frac:.3f} s)")
+
+    # Auto-detect telescope name from FITS header if not specified
+    if args.telescope is None:
+        args.telescope = (pri_hdr.get('TELESCOP')
+                          or pri_hdr.get('TELESCOPE')
+                          or 'unknown')
+        print(f"  Telescope: {args.telescope}  (auto-detected)")
 
     tbdata = hdul['SUBINT'].data
 
@@ -2555,6 +2568,7 @@ def main():
 
     t_fit = t_prof[fit_lo:fit_hi]
     y_fit = profile[fit_lo:fit_hi]
+    t_wide_lo, t_wide_hi = t_fit[0], t_fit[-1]   # save for plot alignment
 
     # ==================================================================
     # 11. Gaussian fit  (or Shapelet fit)
@@ -2961,6 +2975,17 @@ def main():
         rms_off = np.nan
         dof = 0
         comps = None
+
+    # ==================================================================
+    # DM frequency correction: dedispersion aligns to f1 (full-band top),
+    # but the user may request TOA at a different reference frequency.
+    # Shift TOA from f1 to toa_freq_mhz.
+    # ==================================================================
+    if abs(toa_freq_mhz - f1) > 0.01:
+        f_ref_ghz = toa_freq_mhz / 1e3
+        f_top_ghz = f1 / 1e3
+        dm_offset = DM_CONST * dm * (f_ref_ghz**(-2) - f_top_ghz**(-2)) * 1e-3
+        mu_f += dm_offset
 
     # ==================================================================
     # 12b. MCMC uncertainty estimation (optional)
@@ -3775,23 +3800,26 @@ def main():
         # ---- Panel D: Dynamic spectrum ----
         axD = fig.add_subplot(gs[2, :])
         if dat_binned_rfi.size > 0:
-            ds_factor = max(1, dat_binned_rfi.shape[1] // 800)
+            # Restrict to selected frequency range
+            ds_data = dat_binned_rfi[ch_lo_b:ch_hi_b, :]
+            n_ds_ch = ds_data.shape[0]
+            ds_factor = max(1, ds_data.shape[1] // 800)
             if ds_factor > 1:
-                n_trim = dat_binned_rfi.shape[1] - (dat_binned_rfi.shape[1] % ds_factor)
+                n_trim = ds_data.shape[1] - (ds_data.shape[1] % ds_factor)
                 ds_display = np.add.reduceat(
-                    dat_binned_rfi[:, :n_trim],
+                    ds_data[:, :n_trim],
                     np.arange(0, n_trim, ds_factor), axis=1)
                 t_a = t_prof[:n_trim:ds_factor]
                 t_b = t_prof[ds_factor-1:n_trim:ds_factor]
                 n_ds = min(len(t_a), len(t_b))
                 t_ds = 0.5 * (t_a[:n_ds] + t_b[:n_ds])
             else:
-                ds_display = dat_binned_rfi
+                ds_display = ds_data
                 t_ds = t_prof
             vmed = np.median(ds_display)
             vstd = np.std(ds_display)
             axD.imshow(ds_display, aspect='auto', origin='lower',
-                       extent=[t_ds[0], t_ds[-1], 0, ds_display.shape[0]],
+                       extent=[t_ds[0], t_ds[-1], f_lo_mhz, f_hi_mhz],
                        vmin=vmed - 3 * vstd, vmax=vmed + 3 * vstd,
                        cmap='binary', interpolation='none')
 
@@ -3800,15 +3828,10 @@ def main():
                 ls = styles.get(label, '-')
                 axD.axvline(mu_val, color=color, ls=ls, lw=1.0, alpha=0.85)
 
-            # Highlight selected frequency range
-            if ch_lo_b > 0 or ch_hi_b < dat_binned_rfi.shape[0]:
-                axD.axhline(ch_lo_b, color='cyan', ls='--', lw=0.8, alpha=0.7)
-                axD.axhline(ch_hi_b, color='cyan', ls='--', lw=0.8, alpha=0.7)
-
         axD.set_xlabel('Time (s)')
-        axD.set_ylabel('Freq. chan.')
+        axD.set_ylabel('Frequency (MHz)')
         axD.set_title(f'(D) Dynamic spectrum  '
-                      f'({dat_binned_rfi.shape[0]} ch)  |  '
+                      f'({f_lo_mhz:.0f}--{f_hi_mhz:.0f} MHz)  |  '
                       f'All TOAs marked')
         axD.set_xlim(t_prof[xlo_c], t_prof[xhi_c - 1])
 
@@ -3879,8 +3902,8 @@ def main():
                   f'bf = {args.bin_chn}{auto_res_str}  |  ngauss = {n_comp}  '
                   f'mode = {toa_mode}')
     ax0.legend(fontsize=7, loc='best')
-    margin = 2.0 * (t_fit[-1] - t_fit[0])
-    ax0.set_xlim(t_fit[0] - margin, t_fit[-1] + margin)
+    margin = 0.2 * (t_wide_hi - t_wide_lo)
+    ax0.set_xlim(t_wide_lo - margin, t_wide_hi + margin)
 
     # ---- middle panel: fit window + residuals ----
     ax1.plot(t_fit, y_fit, 'k.', ms=3, label='Data')
@@ -3932,37 +3955,35 @@ def main():
 
     # ---- bottom panel: dynamic spectrum (dedispersed + binned) ----
     if dat_binned_rfi.size > 0:
-        ds_factor = max(1, dat_binned_rfi.shape[1] // 800)
+        # Restrict to selected frequency range
+        ds_data = dat_binned_rfi[ch_lo_b:ch_hi_b, :]
+        ds_factor = max(1, ds_data.shape[1] // 800)
         if ds_factor > 1:
-            n_trim = dat_binned_rfi.shape[1] - (dat_binned_rfi.shape[1] % ds_factor)
+            n_trim = ds_data.shape[1] - (ds_data.shape[1] % ds_factor)
             ds_display = np.add.reduceat(
-                dat_binned_rfi[:, :n_trim],
+                ds_data[:, :n_trim],
                 np.arange(0, n_trim, ds_factor), axis=1)
             t_a = t_prof[:n_trim:ds_factor]
             t_b = t_prof[ds_factor-1:n_trim:ds_factor]
             n_ds = min(len(t_a), len(t_b))
             t_ds = 0.5 * (t_a[:n_ds] + t_b[:n_ds])
         else:
-            ds_display = dat_binned_rfi
+            ds_display = ds_data
             t_ds = t_prof
 
         vmed = np.median(ds_display)
         vstd = np.std(ds_display)
         ax2.imshow(ds_display, aspect='auto', origin='lower',
-                   extent=[t_ds[0], t_ds[-1], 0, ds_display.shape[0]],
+                   extent=[t_ds[0], t_ds[-1], f_lo_mhz, f_hi_mhz],
                    vmin=vmed - 3 * vstd, vmax=vmed + 3 * vstd,
                    cmap='binary', interpolation='none')
         if fit_ok:
             ax2.axvline(mu_f, color='r', ls='--', lw=0.8)
-        # Highlight selected frequency range
-        if ch_lo_b > 0 or ch_hi_b < dat_binned_rfi.shape[0]:
-            ax2.axhline(ch_lo_b, color='cyan', ls='--', lw=0.8, alpha=0.7)
-            ax2.axhline(ch_hi_b, color='cyan', ls='--', lw=0.8, alpha=0.7)
     ax2.set_xlabel('Time (s)')
-    ax2.set_ylabel('Freq. chan.')
+    ax2.set_ylabel('Frequency (MHz)')
     ax2.set_title(f'Dedispersed dynamic spectrum  '
-                  f'({dat_binned_rfi.shape[0]} ch x {dat_binned_rfi.shape[1]} bins)')
-    ax2.set_xlim(ax0.get_xlim())  # align with top panel
+                  f'({f_lo_mhz:.0f}--{f_hi_mhz:.0f} MHz)')
+    ax2.set_xlim(ax0.get_xlim())
 
     plt.tight_layout()
 
