@@ -71,6 +71,26 @@ python toa_sp.py -f data.fits -dm 175.25 -s 2.5 -w 0.05 -bs 4 -bf 16
 - numpy, scipy, astropy, matplotlib
 - Optional: emcee, corner
 
+## Citation
+
+If you use toa_sp in your research, please cite:
+
+> Zhang S., Yang X. (2026). TOA_SP: A Multi-Strategy Framework for Single-Pulse Timing. *arXiv*, arXiv:2606.28822.
+
+```bibtex
+@ARTICLE{2026arXiv260628822Z,
+       author = {{Zhang}, Songbo and {Yang}, Xuan},
+        title = "{TOA\_SP: A Multi-Strategy Framework for Single-Pulse Timing}",
+      journal = {arXiv e-prints},
+         year = 2026,
+        month = jun,
+          eid = {arXiv:2606.28822},
+archivePrefix = {arXiv},
+       eprint = {2606.28822},
+ primaryClass = {astro-ph.IM},
+}
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.
